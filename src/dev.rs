@@ -30,7 +30,10 @@ mod graph;
 
 #[cfg(feature = "dev-graph")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dev-graph")))]
-pub use graph::{circuit_dot_graph, layout::CircuitLayout};
+pub use graph::{
+    circuit_dot_graph,
+    layout::{render_to_json, CircuitLayout},
+};
 
 /// The reasons why a particular circuit is not satisfied.
 #[derive(Debug, PartialEq)]

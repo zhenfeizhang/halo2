@@ -3,6 +3,8 @@ use plotters::{
     coord::Shift,
     prelude::{DrawingArea, DrawingAreaErrorKind, DrawingBackend},
 };
+use serde::{ser::SerializeStruct, Serialize};
+
 use std::cmp;
 use std::collections::HashSet;
 use std::ops::Range;
@@ -319,13 +321,64 @@ impl CircuitLayout {
     }
 }
 
-#[derive(Debug)]
+/// Renders the given circuit layout to a JSON string.
+pub fn render_to_json<F: Field, ConcreteCircuit: Circuit<F>>(
+    circuit: &ConcreteCircuit,
+) -> Result<String, serde_json::Error> {
+    // Collect the layout details.
+    let mut cs = ConstraintSystem::default();
+    let config = ConcreteCircuit::configure(&mut cs);
+    let mut layout = Layout::default();
+    ConcreteCircuit::FloorPlanner::synthesize(&mut layout, circuit, config, cs.constants).unwrap();
+
+    // Render.
+    #[derive(Serialize)]
+    struct Circuit {
+        num_instance_columns: usize,
+        num_advice_columns: usize,
+        num_fixed_columns: usize,
+        total_rows: usize,
+        regions: Vec<Region>,
+        loose_cells: Vec<Cell>,
+        selectors: Vec<Vec<bool>>,
+    }
+    serde_json::to_string(&Circuit {
+        num_instance_columns: cs.num_instance_columns,
+        num_advice_columns: cs.num_advice_columns,
+        num_fixed_columns: cs.num_fixed_columns,
+        total_rows: layout.total_rows,
+        regions: layout.regions,
+        loose_cells: layout.loose_cells,
+        selectors: layout.selectors,
+    })
+}
+
+impl Serialize for Column<Any> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("Column", 2)?;
+        state.serialize_field(
+            "kind",
+            match self.column_type() {
+                Any::Advice => "advice",
+                Any::Fixed => "fixed",
+                Any::Instance => "instance",
+            },
+        )?;
+        state.serialize_field("index", &self.index())?;
+        state.end()
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct Cell {
     column: RegionColumn,
     row: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct Region {
     /// The name of the region. Not required to be unique.
     name: String,
