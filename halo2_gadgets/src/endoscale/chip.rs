@@ -284,3 +284,297 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::util::compute_endoscalar_with_acc;
+    use super::{EndoscaleConfig, EndoscaleInstructions};
+    use crate::ecc::chip::NonIdentityEccPoint;
+
+    use ff::PrimeFieldBits;
+    use halo2_proofs::{
+        arithmetic::CurveAffine,
+        circuit::{Layouter, SimpleFloorPlanner, Value},
+        plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
+        poly::commitment::Params,
+    };
+    use pasta_curves::{pallas, vesta};
+
+    use std::{convert::TryInto, marker::PhantomData};
+
+    #[derive(Default)]
+    struct BaseCircuit<
+        C: CurveAffine,
+        const K: usize,
+        const NUM_BITS: usize,
+        const NUM_BITS_DIV2: usize,
+        const NUM_BITS_DIV_K_CEIL: usize,
+    >
+    where
+        C::Base: PrimeFieldBits,
+    {
+        bitstring: Value<[bool; NUM_BITS]>,
+        pub_input_rows: Option<[usize; NUM_BITS_DIV_K_CEIL]>,
+        _marker: PhantomData<C>,
+    }
+
+    impl<
+            C: CurveAffine,
+            const K: usize,
+            const NUM_BITS: usize,
+            const NUM_BITS_DIV2: usize,
+            const NUM_BITS_DIV_K_CEIL: usize,
+        > Circuit<C::Base> for BaseCircuit<C, K, NUM_BITS, NUM_BITS_DIV2, NUM_BITS_DIV_K_CEIL>
+    where
+        C::Base: PrimeFieldBits,
+    {
+        type Config = (EndoscaleConfig<C, K, 248>, Column<Advice>);
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<C::Base>) -> Self::Config {
+            let constants = meta.fixed_column();
+            meta.enable_constant(constants);
+
+            let advices = (0..8)
+                .map(|_| meta.advice_column())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let running_sum = meta.advice_column();
+            let endoscalars = meta.instance_column();
+
+            (
+                EndoscaleConfig::configure(meta, advices, running_sum, endoscalars),
+                running_sum,
+            )
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<C::Base>,
+        ) -> Result<(), Error> {
+            config.0.alg_2.table.load(&mut layouter)?;
+
+            let bitstring = config.0.witness_bitstring(
+                &mut layouter,
+                &self.bitstring.transpose_array(),
+                true,
+            )?;
+
+            // Alg 1 (fixed base)
+            let g_lagrange = Params::<C>::new(11).g_lagrange()[0];
+            config
+                .0
+                .endoscale_fixed_base(&mut layouter, bitstring.clone(), vec![g_lagrange])?;
+
+            // Alg 1 (variable base)
+            let g_lagrange = layouter.assign_region(
+                || "g_lagrange",
+                |mut region| {
+                    let x = region.assign_advice(
+                        || "x",
+                        config.1,
+                        0,
+                        || Value::known(*g_lagrange.coordinates().unwrap().x()),
+                    )?;
+                    let y = region.assign_advice(
+                        || "y",
+                        config.1,
+                        1,
+                        || Value::known(*g_lagrange.coordinates().unwrap().y()),
+                    )?;
+
+                    Ok(NonIdentityEccPoint::<C>::from_coordinates_unchecked(
+                        x.into(),
+                        y.into(),
+                    ))
+                },
+            )?;
+            config
+                .0
+                .endoscale_var_base(&mut layouter, bitstring, vec![g_lagrange])?;
+
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct ScalarCircuit<
+        C: CurveAffine,
+        const K: usize,
+        const NUM_BITS: usize,
+        const NUM_BITS_DIV2: usize,
+        const NUM_BITS_DIV_K_CEIL: usize,
+    >
+    where
+        C::Base: PrimeFieldBits,
+    {
+        bitstring: Value<[bool; NUM_BITS]>,
+        pub_input_rows: Option<[usize; NUM_BITS_DIV_K_CEIL]>,
+        _marker: PhantomData<C>,
+    }
+
+    impl<
+            C: CurveAffine,
+            const K: usize,
+            const NUM_BITS: usize,
+            const NUM_BITS_DIV2: usize,
+            const NUM_BITS_DIV_K_CEIL: usize,
+        > Circuit<C::Base> for ScalarCircuit<C, K, NUM_BITS, NUM_BITS_DIV2, NUM_BITS_DIV_K_CEIL>
+    where
+        C::Base: PrimeFieldBits,
+    {
+        type Config = EndoscaleConfig<C, K, 248>;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<C::Base>) -> Self::Config {
+            let constants = meta.fixed_column();
+            meta.enable_constant(constants);
+
+            let advices = (0..8)
+                .map(|_| meta.advice_column())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let running_sum = meta.advice_column();
+            let endoscalars = meta.instance_column();
+
+            EndoscaleConfig::configure(meta, advices, running_sum, endoscalars)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<C::Base>,
+        ) -> Result<(), Error> {
+            config.alg_2.table.load(&mut layouter)?;
+
+            let bitstring = config.witness_bitstring(
+                &mut layouter,
+                &self.bitstring.transpose_array(),
+                false,
+            )?;
+
+            // Alg 2 with lookup
+            config.compute_endoscalar(&mut layouter, &bitstring[0])?;
+
+            // Recover bitstring
+            config.recover_bitstring(
+                &mut layouter,
+                &bitstring[0],
+                self.pub_input_rows.unwrap().to_vec(),
+            )?;
+
+            Ok(())
+        }
+    }
+
+    fn test_endoscale_cycle<BaseCurve: CurveAffine, ScalarCurve: CurveAffine>()
+    where
+        BaseCurve::Base: PrimeFieldBits,
+        ScalarCurve::Base: PrimeFieldBits,
+    {
+        use ff::Field;
+        use halo2_proofs::dev::MockProver;
+
+        const K: usize = 8;
+        const NUM_BITS: usize = 64;
+        const NUM_BITS_DIV2: usize = NUM_BITS / 2;
+        const NUM_BITS_DIV_K_CEIL: usize = (NUM_BITS + K - 1) / K;
+
+        // Random 64-bit value.
+        let bitstring: [bool; NUM_BITS] = (0..NUM_BITS)
+            .map(|_| rand::random::<bool>())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        // Public input of endoscalars in the base field corresponding to the bits.
+        let pub_inputs_base: Vec<BaseCurve::Base> = {
+            // Pad bitstring to multiple of K.
+            let bitstring = bitstring
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(false))
+                .take(K * NUM_BITS_DIV_K_CEIL)
+                .collect::<Vec<_>>();
+            (0..NUM_BITS_DIV_K_CEIL)
+                .map(|chunk| {
+                    let idx = chunk * K;
+                    compute_endoscalar_with_acc(
+                        Some(BaseCurve::Base::zero()),
+                        &bitstring[idx..(idx + K)],
+                    )
+                })
+                .collect()
+        };
+
+        // Public input of endoscalars in the base field corresponding to the bits.
+        let pub_inputs_scalar: Vec<ScalarCurve::Base> = {
+            // Pad bitstring to multiple of K.
+            let bitstring = bitstring
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(false))
+                .take(K * NUM_BITS_DIV_K_CEIL)
+                .collect::<Vec<_>>();
+            (0..NUM_BITS_DIV_K_CEIL)
+                .map(|chunk| {
+                    let idx = chunk * K;
+                    compute_endoscalar_with_acc(
+                        Some(ScalarCurve::Base::zero()),
+                        &bitstring[idx..(idx + K)],
+                    )
+                })
+                .collect()
+        };
+
+        let base_circuit =
+            BaseCircuit::<BaseCurve, K, NUM_BITS, NUM_BITS_DIV2, NUM_BITS_DIV_K_CEIL> {
+                bitstring: Value::known(bitstring),
+                pub_input_rows: Some(
+                    (0..NUM_BITS_DIV_K_CEIL)
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap(),
+                ),
+                _marker: PhantomData,
+            };
+        let scalar_circuit =
+            ScalarCircuit::<ScalarCurve, K, NUM_BITS, NUM_BITS_DIV2, NUM_BITS_DIV_K_CEIL> {
+                bitstring: Value::known(bitstring),
+                pub_input_rows: Some(
+                    (0..NUM_BITS_DIV_K_CEIL)
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap(),
+                ),
+                _marker: PhantomData,
+            };
+
+        // Calls endoscale_base
+        let base_prover = MockProver::run(11, &base_circuit, vec![pub_inputs_base]).unwrap();
+        base_prover.assert_satisfied();
+
+        // Calls endoscale_scalar
+        let scalar_prover = MockProver::run(11, &scalar_circuit, vec![pub_inputs_scalar]).unwrap();
+        scalar_prover.assert_satisfied();
+
+        // TODO: Check consistency of resulting commitment / endoscalar
+    }
+
+    #[test]
+    fn test_endoscale() {
+        test_endoscale_cycle::<pallas::Affine, vesta::Affine>();
+        test_endoscale_cycle::<vesta::Affine, pallas::Affine>();
+    }
+}
