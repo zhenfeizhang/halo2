@@ -83,6 +83,11 @@ impl<F: FieldExt + PrimeFieldBits, const WINDOW_NUM_BITS: usize>
         self.q_range_check
     }
 
+    /// Returns the `z` advice column of this [`RunningSumConfig`].
+    pub(crate) fn z(&self) -> Column<Advice> {
+        self.z
+    }
+
     /// `perm` MUST include the advice column `z`.
     ///
     /// # Side-effects
