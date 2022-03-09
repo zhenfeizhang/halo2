@@ -172,10 +172,66 @@ where
 
     pub(super) fn recover_bitstring(
         &self,
-        mut _layouter: &mut impl Layouter<C::Base>,
-        _bitstring: &RunningSum<C::Base, K>,
-        _pub_input_rows: Vec<usize>,
+        layouter: &mut impl Layouter<C::Base>,
+        bitstring: &RunningSum<C::Base, K>,
+        pub_input_rows: Vec<usize>,
     ) -> Result<RunningSum<C::Base, K>, Error> {
-        todo!()
+        let num_bits = bitstring.num_bits();
+
+        // num_bits must be an even number not greater than MAX_BITSTRING_LENGTH.
+        assert!(num_bits <= MAX_BITSTRING_LENGTH);
+        assert_eq!(num_bits % 2, 0);
+
+        layouter.assign_region(
+            || "Recover bitstring from endoscalars",
+            |mut region| {
+                let offset = 0;
+
+                // Copy the running sum.
+                for (idx, z) in bitstring.zs().iter().enumerate() {
+                    z.copy_advice(
+                        || format!("z[{:?}]", idx),
+                        &mut region,
+                        self.running_sum_chunks.z(),
+                        offset + idx,
+                    )?;
+                }
+
+                // For each chunk, lookup the (chunk, endoscalar) pair.
+                for (idx, (chunk, pub_input_row)) in bitstring
+                    .windows()
+                    .iter()
+                    .zip(pub_input_rows.iter())
+                    .enumerate()
+                {
+                    self.q_lookup.enable(&mut region, offset)?;
+
+                    let _computed_endoscalar = chunk.map(|c| {
+                        compute_endoscalar_with_acc(
+                            Some(C::Base::zero()),
+                            &c.to_le_bits().iter().by_vals().take(K).collect::<Vec<_>>(),
+                        )
+                    });
+                    // Copy endoscalar from given row on instance column
+                    let _copied_endoscalar = region.assign_advice_from_instance(
+                        || format!("Endoscalar at row {:?}", pub_input_row),
+                        self.endoscalars,
+                        *pub_input_row,
+                        self.endoscalars_copy,
+                        offset + idx,
+                    )?;
+
+                    #[cfg(test)]
+                    {
+                        _copied_endoscalar
+                            .value()
+                            .zip(_computed_endoscalar)
+                            .assert_if_known(|(copied, computed)| *copied == computed);
+                    }
+                }
+
+                Ok(bitstring.clone())
+            },
+        )
     }
 }
