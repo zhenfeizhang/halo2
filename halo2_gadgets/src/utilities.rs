@@ -1,10 +1,7 @@
 //! Utility gadgets.
 
 use ff::{Field, PrimeFieldBits};
-use halo2_proofs::{
-    circuit::{AssignedCell, Cell, Layouter},
-    plonk::{Advice, Column, Error, Expression},
-};
+use halo2_proofs::{circuit::AssignedCell, plonk::Expression};
 use pasta_curves::arithmetic::FieldExt;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -28,53 +25,6 @@ impl<F: Field> FieldValue<F> for Option<F> {
 impl<F: Field> FieldValue<F> for AssignedCell<F, F> {
     fn value(&self) -> Option<&F> {
         self.value()
-    }
-}
-
-/// Trait for a variable in the circuit.
-pub trait Var<F: FieldExt>: Clone + std::fmt::Debug + From<AssignedCell<F, F>> {
-    /// The cell at which this variable was allocated.
-    fn cell(&self) -> Cell;
-
-    /// The value allocated to this variable.
-    fn value(&self) -> Option<F>;
-}
-
-impl<F: FieldExt> Var<F> for AssignedCell<F, F> {
-    fn cell(&self) -> Cell {
-        self.cell()
-    }
-
-    fn value(&self) -> Option<F> {
-        self.value().cloned()
-    }
-}
-
-/// Trait for utilities used across circuits.
-pub trait UtilitiesInstructions<F: FieldExt> {
-    /// Variable in the circuit.
-    type Var: Var<F>;
-
-    /// Load a variable.
-    fn load_private(
-        &self,
-        mut layouter: impl Layouter<F>,
-        column: Column<Advice>,
-        value: Option<F>,
-    ) -> Result<Self::Var, Error> {
-        layouter.assign_region(
-            || "load private",
-            |mut region| {
-                region
-                    .assign_advice(
-                        || "load private",
-                        column,
-                        0,
-                        || value.ok_or(Error::Synthesis),
-                    )
-                    .map(Self::Var::from)
-            },
-        )
     }
 }
 
@@ -255,6 +205,32 @@ pub fn i2lebsp<const NUM_BITS: usize>(int: u64) -> [bool; NUM_BITS] {
 }
 
 #[cfg(test)]
+use halo2_proofs::{
+    circuit::Layouter,
+    plonk::{Advice, Column, Error},
+};
+
+#[cfg(test)]
+/// Helper method to load a value into an advice cell.
+pub(crate) fn load_private<F: FieldExt>(
+    mut layouter: impl Layouter<F>,
+    column: Column<Advice>,
+    value: Option<F>,
+) -> Result<AssignedCell<F, F>, Error> {
+    layouter.assign_region(
+        || "load private",
+        |mut region| {
+            region.assign_advice(
+                || "load private",
+                column,
+                0,
+                || value.ok_or(Error::Synthesis),
+            )
+        },
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use group::ff::{Field, PrimeField};
@@ -274,10 +250,6 @@ mod tests {
     #[test]
     fn test_range_check() {
         struct MyCircuit<const RANGE: usize>(u8);
-
-        impl<const RANGE: usize> UtilitiesInstructions<pallas::Base> for MyCircuit<RANGE> {
-            type Var = AssignedCell<pallas::Base, pallas::Base>;
-        }
 
         #[derive(Clone)]
         struct Config {

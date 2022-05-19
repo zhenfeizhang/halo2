@@ -491,7 +491,7 @@ pub mod tests {
             tests::TestFixedBases,
             EccInstructions, NonIdentityPoint, Point, ScalarVar,
         },
-        utilities::UtilitiesInstructions,
+        utilities::load_private,
     };
 
     pub(crate) fn test_mul(
@@ -526,7 +526,7 @@ pub mod tests {
         {
             let scalar_val = pallas::Base::random(OsRng);
             let (result, _) = {
-                let scalar = chip.load_private(
+                let scalar = load_private(
                     layouter.namespace(|| "random scalar"),
                     column,
                     Some(scalar_val),
@@ -552,8 +552,7 @@ pub mod tests {
         {
             let scalar_val = pallas::Base::zero();
             let (result, _) = {
-                let scalar =
-                    chip.load_private(layouter.namespace(|| "zero"), column, Some(scalar_val))?;
+                let scalar = load_private(layouter.namespace(|| "zero"), column, Some(scalar_val))?;
                 let scalar = ScalarVar::from_base(
                     chip.clone(),
                     layouter.namespace(|| "ScalarVar from_base"),
@@ -570,8 +569,7 @@ pub mod tests {
         {
             let scalar_val = -pallas::Base::one();
             let (result, _) = {
-                let scalar =
-                    chip.load_private(layouter.namespace(|| "-1"), column, Some(scalar_val))?;
+                let scalar = load_private(layouter.namespace(|| "-1"), column, Some(scalar_val))?;
                 let scalar = ScalarVar::from_base(
                     chip.clone(),
                     layouter.namespace(|| "ScalarVar from_base"),

@@ -249,7 +249,7 @@ pub mod tests {
     use group::{ff::PrimeField, Curve};
     use halo2_proofs::{
         arithmetic::CurveAffine,
-        circuit::{AssignedCell, Chip, Layouter},
+        circuit::{Chip, Layouter},
         plonk::{Any, Error},
     };
     use pasta_curves::{arithmetic::FieldExt, pallas};
@@ -260,7 +260,7 @@ pub mod tests {
             tests::{Short, TestFixedBases},
             FixedPointShort, NonIdentityPoint, Point, ScalarFixedShort,
         },
-        utilities::{lookup_range_check::LookupRangeCheckConfig, UtilitiesInstructions},
+        utilities::{load_private, lookup_range_check::LookupRangeCheckConfig},
     };
 
     #[allow(clippy::op_ref)]
@@ -280,8 +280,8 @@ pub mod tests {
         ) -> Result<MagnitudeSign, Error> {
             let column = chip.config().advices[0];
             let magnitude =
-                chip.load_private(layouter.namespace(|| "magnitude"), column, Some(magnitude))?;
-            let sign = chip.load_private(layouter.namespace(|| "sign"), column, Some(sign))?;
+                load_private(layouter.namespace(|| "magnitude"), column, Some(magnitude))?;
+            let sign = load_private(layouter.namespace(|| "sign"), column, Some(sign))?;
 
             Ok((magnitude, sign))
         }
@@ -400,7 +400,7 @@ pub mod tests {
     fn invalid_magnitude_sign() {
         use crate::{
             ecc::chip::{EccConfig, FixedPoint},
-            utilities::UtilitiesInstructions,
+            utilities::load_private,
         };
         use halo2_proofs::{
             circuit::{Layouter, SimpleFloorPlanner},
@@ -414,10 +414,6 @@ pub mod tests {
             sign: Option<pallas::Base>,
             // For test checking
             magnitude_error: Option<pallas::Base>,
-        }
-
-        impl UtilitiesInstructions<pallas::Base> for MyCircuit {
-            type Var = AssignedCell<pallas::Base, pallas::Base>;
         }
 
         impl Circuit<pallas::Base> for MyCircuit {
@@ -470,13 +466,12 @@ pub mod tests {
 
                 let short_config = config.mul_fixed_short.clone();
                 let magnitude_sign = {
-                    let magnitude = self.load_private(
+                    let magnitude = load_private(
                         layouter.namespace(|| "load magnitude"),
                         column,
                         self.magnitude,
                     )?;
-                    let sign =
-                        self.load_private(layouter.namespace(|| "load sign"), column, self.sign)?;
+                    let sign = load_private(layouter.namespace(|| "load sign"), column, self.sign)?;
                     ScalarFixedShort::new(
                         EccChip::construct(config),
                         layouter.namespace(|| "signed short scalar"),
