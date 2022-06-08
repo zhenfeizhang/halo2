@@ -4,7 +4,7 @@ use crate::{
     ecc::chip::NonIdentityEccPoint,
     utilities::{
         decompose_running_sum::{RunningSum, RunningSumConfig},
-        i2lebsp, range_check,
+        i2lebsp, le_bits_to_field_elem, range_check,
     },
 };
 
@@ -135,6 +135,14 @@ where
 
         let table = TableConfig::configure(meta);
 
+        // Each window in running_sum_chunks must be K bits.
+        meta.lookup(|meta| {
+            let q_range_check = meta.query_selector(running_sum_chunks.q_range_check());
+            let word = running_sum_chunks.window_expr(meta);
+
+            vec![(q_range_check * word, table.bits)]
+        });
+
         let alg_2 = Alg2Config::configure(
             meta,
             endoscalars,
@@ -166,11 +174,51 @@ where
 
     fn witness_bitstring(
         &self,
-        _layouter: &mut impl Layouter<C::Base>,
-        _bits: &[Value<bool>],
-        _for_base: bool,
+        layouter: &mut impl Layouter<C::Base>,
+        bits: &[Value<bool>],
+        for_base: bool,
     ) -> Result<Vec<Self::Bitstring>, Error> {
-        todo!()
+        assert_eq!(bits.len() % 2, 0);
+        bits.chunks(Self::MAX_BITSTRING_LENGTH)
+            .map(|bitstring| {
+                layouter.assign_region(
+                    || "witness bitstring",
+                    |mut region| {
+                        let offset = 0;
+                        let word_num_bits = bitstring.len();
+                        let alpha = {
+                            let bitstring = Value::<Vec<_>>::from_iter(bitstring.to_vec());
+                            bitstring.map(|b| le_bits_to_field_elem(&b))
+                        };
+                        if for_base {
+                            let num_windows = word_num_bits / 2;
+                            self.running_sum_pairs
+                                .witness_decompose(
+                                    &mut region,
+                                    offset,
+                                    alpha,
+                                    true,
+                                    word_num_bits,
+                                    num_windows,
+                                )
+                                .map(Bitstring::Pair)
+                        } else {
+                            let num_windows = word_num_bits / K;
+                            self.running_sum_chunks
+                                .witness_decompose(
+                                    &mut region,
+                                    offset,
+                                    alpha,
+                                    true,
+                                    word_num_bits,
+                                    num_windows,
+                                )
+                                .map(Bitstring::KBit)
+                        }
+                    },
+                )
+            })
+            .collect()
     }
 
     #[allow(clippy::type_complexity)]

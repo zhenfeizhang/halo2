@@ -28,9 +28,9 @@ where
     // Advice column where accumulator is witnessed.
     acc: Column<Advice>,
     // Configuration for running sum decomposition into K-bit chunks.
-    running_sum_chunks: RunningSumConfig<C::Base, K>,
+    pub(super) running_sum_chunks: RunningSumConfig<C::Base, K>,
     // Table mapping words to their corresponding endoscalars.
-    pub(super) table: TableConfig<C::Base, K>,
+    table: TableConfig<C::Base, K>,
 }
 
 impl<C: CurveAffine, const K: usize, const MAX_BITSTRING_LENGTH: usize>

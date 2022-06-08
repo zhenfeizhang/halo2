@@ -38,7 +38,7 @@ where
     // Bits used in endoscaling. These are in (b_0, b_1) pairs.
     pair: (Column<Advice>, Column<Advice>),
     // Configuration for running sum decomposition into pairs of bits.
-    running_sum_pairs: RunningSumConfig<C::Base, 2>,
+    pub(super) running_sum_pairs: RunningSumConfig<C::Base, 2>,
 }
 
 impl<C: CurveAffine> Alg1Config<C>
