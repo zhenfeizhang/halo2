@@ -73,6 +73,8 @@ impl<C: CurveAffine> DoubleAndAdd<C> {
         lambda_2: Column<Advice>,
         main_selector: &dyn Fn(&mut VirtualCells<C::Base>) -> Expression<C::Base>,
     ) -> Self {
+        meta.enable_equality(x_a);
+
         let config = Self {
             x_a,
             x_p,
