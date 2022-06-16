@@ -190,6 +190,9 @@ impl<C: CurveAffine> DoubleAndAdd<C> {
             },
         )?;
 
+        // Copy `x_a`
+        x_a.0.copy_advice(|| "copy x_a", region, self.x_a, offset)?;
+
         // Assign `x_p`
         region.assign_advice(|| "x_p", self.x_p, offset, || x_p)?;
 
