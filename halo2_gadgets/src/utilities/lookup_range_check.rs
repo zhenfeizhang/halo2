@@ -97,7 +97,7 @@ impl<F: FieldExt + PrimeFieldBits, const K: usize> LookupRangeCheckConfig<F, K> 
         };
 
         // https://p.z.cash/halo2-0.1:decompose-combined-lookup
-        meta.lookup(|meta| {
+        meta.lookup("range check", |meta| {
             let q_lookup = meta.query_selector(config.q_lookup);
             let q_running = meta.query_selector(config.q_running);
             let z_cur = meta.query_advice(config.running_sum, Rotation::cur());

@@ -984,7 +984,7 @@ mod tests {
                 let q = meta.complex_selector();
                 let table = meta.lookup_table_column();
 
-                meta.lookup(|cells| {
+                meta.lookup("bad_lookup", |cells| {
                     let a = cells.query_advice(a, Rotation::cur());
                     let q = cells.query_selector(q);
 

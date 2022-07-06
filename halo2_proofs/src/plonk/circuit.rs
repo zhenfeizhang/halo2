@@ -1004,10 +1004,12 @@ impl<F: Field> ConstraintSystem<F> {
 
     /// Add a lookup argument for some input expressions and table columns.
     ///
+    /// `name` is the name of the table
     /// `table_map` returns a map between input expressions and the table columns
     /// they need to match.
     pub fn lookup(
         &mut self,
+        name: &'static str,
         table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, TableColumn)>,
     ) -> usize {
         let mut cells = VirtualCells::new(self);
@@ -1026,7 +1028,29 @@ impl<F: Field> ConstraintSystem<F> {
 
         let index = self.lookups.len();
 
-        self.lookups.push(lookup::Argument::new(table_map));
+        self.lookups.push(lookup::Argument::new(name, table_map));
+
+        index
+    }
+
+    /// Add a lookup argument for some input expressions and table columns.
+    ///
+    /// `name` is the name of the table
+    /// `table_map` returns a map between input expressions and the table columns
+    /// they need to match.
+    ///
+    /// This API allows any column type to be used as table columns.
+    pub fn lookup_any(
+        &mut self,
+        name: &'static str,
+        table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, Expression<F>)>,
+    ) -> usize {
+        let mut cells = VirtualCells::new(self);
+        let table_map = table_map(&mut cells);
+
+        let index = self.lookups.len();
+
+        self.lookups.push(lookup::Argument::new(name, table_map));
 
         index
     }
