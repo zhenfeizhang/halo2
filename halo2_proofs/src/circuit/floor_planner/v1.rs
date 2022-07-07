@@ -9,8 +9,8 @@ use crate::{
         Cell, Layouter, Region, RegionIndex, RegionStart, Table, Value,
     },
     plonk::{
-        Advice, Any, Assigned, Assignment, Circuit, Column, Error, Fixed, FloorPlanner, Instance,
-        Selector, TableColumn,
+        Advice, Any, Assigned, Assignment, Circuit, Column, ConstantTableColumn,
+        DynamicTableColumn, Error, Fixed, FloorPlanner, Instance, Selector,
     },
 };
 
@@ -34,7 +34,9 @@ struct V1Plan<'a, F: Field, CS: Assignment<F> + 'a> {
     /// Stores the constants to be assigned, and the cells to which they are copied.
     constants: Vec<(Assigned<F>, Cell)>,
     /// Stores the table fixed columns.
-    table_columns: Vec<TableColumn>,
+    constant_table_columns: Vec<ConstantTableColumn>,
+    /// Stores the table dynamic columns.
+    dynamic_table_columns: Vec<DynamicTableColumn>,
 }
 
 impl<'a, F: Field, CS: Assignment<F> + 'a> fmt::Debug for V1Plan<'a, F, CS> {
@@ -50,7 +52,8 @@ impl<'a, F: Field, CS: Assignment<F>> V1Plan<'a, F, CS> {
             cs,
             regions: vec![],
             constants: vec![],
-            table_columns: vec![],
+            constant_table_columns: vec![],
+            dynamic_table_columns: vec![],
         };
         Ok(ret)
     }
@@ -296,12 +299,16 @@ impl<'p, 'a, F: Field, CS: Assignment<F> + 'a> AssignmentPass<'p, 'a, F, CS> {
 
         // Assign table cells.
         self.plan.cs.enter_region(name);
-        let mut table = SimpleTableLayouter::new(self.plan.cs, &self.plan.table_columns);
+        let mut table = SimpleTableLayouter::new(
+            self.plan.cs,
+            &self.plan.constant_table_columns,
+            &self.plan.dynamic_table_columns,
+        );
         let result = {
             let table: &mut dyn TableLayouter<F> = &mut table;
             assignment(table.into())
         }?;
-        let default_and_assigned = table.default_and_assigned;
+        let default_and_assigned = table.constant_default_and_assigned;
         self.plan.cs.exit_region();
 
         // Check that all table columns have the same length `first_unused`,
@@ -324,10 +331,12 @@ impl<'p, 'a, F: Field, CS: Assignment<F> + 'a> AssignmentPass<'p, 'a, F, CS> {
                 _ => return Err(Error::Synthesis), // TODO better error
             }
         };
-
+        //
+        // TODO handle dynamic table
+        //
         // Record these columns so that we can prevent them from being used again.
         for column in default_and_assigned.keys() {
-            self.plan.table_columns.push(*column);
+            self.plan.constant_table_columns.push(*column);
         }
 
         for (col, (default_val, _)) in default_and_assigned {

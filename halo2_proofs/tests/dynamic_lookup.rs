@@ -14,14 +14,14 @@ use halo2_proofs::{
 };
 
 #[test]
-fn lookup_any() {
+fn lookup_dynamic() {
     #[derive(Clone, Debug)]
     struct MyConfig<F: FieldExt> {
         input: Column<Advice>,
         // Selector to enable lookups on even numbers.
         q_even: Selector,
         // Use an advice column as the lookup table column for even numbers.
-        table_even: Column<Advice>,
+        table_even: [Column<Advice>; 2],
         // Selector to enable lookups on odd numbers.
         q_odd: Selector,
         // Use an instance column as the lookup table column for odd numbers.
@@ -34,24 +34,24 @@ fn lookup_any() {
             let config = Self {
                 input: meta.advice_column(),
                 q_even: meta.complex_selector(),
-                table_even: meta.advice_column(),
+                table_even: [meta.advice_column(), meta.advice_column()],
                 q_odd: meta.complex_selector(),
                 table_odd: meta.instance_column(),
                 _marker: PhantomData,
             };
 
             // Lookup on even numbers
-            meta.lookup_any("even number", |meta| {
+            meta.lookup_dynamic_table("even number", |meta| {
                 let input = meta.query_advice(config.input, Rotation::cur());
 
                 let q_even = meta.query_selector(config.q_even);
-                let table_even = meta.query_advice(config.table_even, Rotation::cur());
+                let table_even = meta.query_advice(config.table_even[0], Rotation::cur());
 
                 vec![(q_even * input, table_even)]
             });
 
             // Lookup on odd numbers
-            meta.lookup_any("odd number", |meta| {
+            meta.lookup_dynamic_table("odd number", |meta| {
                 let input = meta.query_advice(config.input, Rotation::cur());
 
                 let q_odd = meta.query_selector(config.q_odd);
@@ -97,7 +97,7 @@ fn lookup_any() {
             )
         }
 
-        fn load_even_lookup(
+        fn load_lookup(
             &self,
             mut layouter: impl Layouter<F>,
             values: &[Value<F>],
@@ -108,7 +108,7 @@ fn lookup_any() {
                     for (offset, value) in values.iter().enumerate() {
                         region.assign_advice(
                             || "even table value",
-                            self.table_even,
+                            self.table_even[0],
                             offset,
                             || *value,
                         )?;
@@ -146,7 +146,7 @@ fn lookup_any() {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             // Load allowed values for even lookup table
-            config.load_even_lookup(
+            config.load_lookup(
                 layouter.namespace(|| "witness even numbers"),
                 self.even_lookup
                     .iter()
@@ -204,6 +204,17 @@ fn lookup_any() {
         even_witnesses,
         odd_witnesses,
     };
+
+    #[cfg(feature = "dev-graph")]
+    {
+        use plotters::prelude::*;
+        let root = BitMapBackend::new("dynamic_lookup.png", (1024, 3096)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root.titled("inner product", ("sans-serif", 60)).unwrap();
+        halo2_proofs::dev::CircuitLayout::default()
+            .render(4, &circuit, &root)
+            .unwrap();
+    }
 
     // Given the correct public input, our circuit will verify.
     let prover = MockProver::run(k, &circuit, vec![odd_lookup]).unwrap();

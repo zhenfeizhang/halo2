@@ -8,7 +8,8 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::pasta::{Eq, EqAffine, Fp};
 use halo2_proofs::plonk::{
     create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Assigned, BatchVerifier, Circuit,
-    Column, ConstraintSystem, Error, Fixed, SingleVerifier, TableColumn, VerificationStrategy,
+    Column, ConstantTableColumn, ConstraintSystem, Error, Fixed, SingleVerifier,
+    VerificationStrategy,
 };
 use halo2_proofs::poly::commitment::{Guard, MSM};
 use halo2_proofs::poly::{commitment::Params, Rotation};
@@ -40,7 +41,7 @@ fn plonk_api() {
         sc: Column<Fixed>,
         sm: Column<Fixed>,
         sp: Column<Fixed>,
-        sl: TableColumn,
+        sl: ConstantTableColumn,
     }
 
     #[allow(clippy::type_complexity)]
@@ -251,7 +252,7 @@ fn plonk_api() {
                 || "",
                 |mut table| {
                     for (index, &value) in values.iter().enumerate() {
-                        table.assign_cell(
+                        table.assign_constant_cell(
                             || "table col",
                             self.config.sl,
                             index,
@@ -294,7 +295,7 @@ fn plonk_api() {
             let sb = meta.fixed_column();
             let sc = meta.fixed_column();
             let sp = meta.fixed_column();
-            let sl = meta.lookup_table_column();
+            let sl = meta.constant_lookup_table_column();
 
             /*
              *   A         B      ...  sl
@@ -312,7 +313,7 @@ fn plonk_api() {
              * ]
              */
 
-            meta.lookup("api lookup", |meta| {
+            meta.lookup_constant_table("api lookup", |meta| {
                 let a_ = meta.query_any(a, Rotation::cur());
                 vec![(a_, sl)]
             });

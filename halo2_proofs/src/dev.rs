@@ -883,8 +883,8 @@ mod tests {
     use crate::{
         circuit::{Layouter, SimpleFloorPlanner, Value},
         plonk::{
-            Advice, Any, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
-            TableColumn,
+            Advice, Any, Circuit, Column, ConstantTableColumn, ConstraintSystem, Error, Expression,
+            Selector,
         },
         poly::Rotation,
     };
@@ -970,7 +970,7 @@ mod tests {
         struct FaultyCircuitConfig {
             a: Column<Advice>,
             q: Selector,
-            table: TableColumn,
+            table: ConstantTableColumn,
         }
 
         struct FaultyCircuit {}
@@ -982,9 +982,9 @@ mod tests {
             fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
                 let a = meta.advice_column();
                 let q = meta.complex_selector();
-                let table = meta.lookup_table_column();
+                let table = meta.constant_lookup_table_column();
 
-                meta.lookup("bad_lookup", |cells| {
+                meta.lookup_constant_table("bad_lookup", |cells| {
                     let a = cells.query_advice(a, Rotation::cur());
                     let q = cells.query_selector(q);
 
@@ -1012,7 +1012,7 @@ mod tests {
                     |mut table| {
                         (1..(1 << (K - 1)))
                             .map(|i| {
-                                table.assign_cell(
+                                table.assign_constant_cell(
                                     || format!("table[{}] = {}", i, 2 * i),
                                     config.table,
                                     i - 1,

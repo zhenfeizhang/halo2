@@ -16,7 +16,26 @@ impl<F: Field> Argument<F> {
     ///
     /// `name` is the name of the table
     /// `table_map` is a sequence of `(input, table)` tuples.
-    pub fn new(name: &'static str, table_map: Vec<(Expression<F>, Expression<F>)>) -> Self {
+    pub fn new_constant_table(
+        name: &'static str,
+        table_map: Vec<(Expression<F>, Expression<F>)>,
+    ) -> Self {
+        let (input_expressions, table_expressions) = table_map.into_iter().unzip();
+        Argument {
+            name,
+            input_expressions,
+            table_expressions,
+        }
+    }
+
+    /// Constructs a new lookup argument.
+    ///
+    /// `name` is the name of the table
+    /// `table_map` is a sequence of `(input, table)` tuples.
+    pub fn new_dynamic_table(
+        name: &'static str,
+        table_map: Vec<(Expression<F>, Expression<F>)>,
+    ) -> Self {
         let (input_expressions, table_expressions) = table_map.into_iter().unzip();
         Argument {
             name,

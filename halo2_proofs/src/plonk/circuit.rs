@@ -269,6 +269,34 @@ impl Selector {
     }
 }
 
+/// A fixed column of a constant lookup table.
+///
+/// A lookup table can be loaded into this column via [`Layouter::assign_table`]. Columns
+/// can currently only contain a single table, but they may be used in multiple lookup
+/// arguments via [`ConstraintSystem::lookup`].
+///
+/// Lookup table columns are always "encumbered" by the lookup arguments they are used in;
+/// they cannot simultaneously be used as general fixed columns.
+///
+/// [`Layouter::assign_table`]: crate::circuit::Layouter::assign_table
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct ConstantTableColumn {
+    /// The fixed column that this table column is stored in.
+    ///
+    /// # Security
+    ///
+    /// This inner column MUST NOT be exposed in the public API, or else chip developers
+    /// can load lookup tables into their circuits without default-value-filling the
+    /// columns, which can cause soundness bugs.
+    inner: Column<Fixed>,
+}
+
+impl ConstantTableColumn {
+    pub(crate) fn inner(&self) -> Column<Fixed> {
+        self.inner
+    }
+}
+
 /// A fixed column of a lookup table.
 ///
 /// A lookup table can be loaded into this column via [`Layouter::assign_table`]. Columns
@@ -280,7 +308,7 @@ impl Selector {
 ///
 /// [`Layouter::assign_table`]: crate::circuit::Layouter::assign_table
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct TableColumn {
+pub struct DynamicTableColumn {
     /// The fixed column that this table column is stored in.
     ///
     /// # Security
@@ -288,11 +316,11 @@ pub struct TableColumn {
     /// This inner column MUST NOT be exposed in the public API, or else chip developers
     /// can load lookup tables into their circuits without default-value-filling the
     /// columns, which can cause soundness bugs.
-    inner: Column<Fixed>,
+    inner: Column<Advice>,
 }
 
-impl TableColumn {
-    pub(crate) fn inner(&self) -> Column<Fixed> {
+impl DynamicTableColumn {
+    pub(crate) fn inner(&self) -> Column<Advice> {
         self.inner
     }
 }
@@ -1007,10 +1035,10 @@ impl<F: Field> ConstraintSystem<F> {
     /// `name` is the name of the table
     /// `table_map` returns a map between input expressions and the table columns
     /// they need to match.
-    pub fn lookup(
+    pub fn lookup_constant_table(
         &mut self,
         name: &'static str,
-        table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, TableColumn)>,
+        table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, ConstantTableColumn)>,
     ) -> usize {
         let mut cells = VirtualCells::new(self);
         let table_map = table_map(&mut cells)
@@ -1028,7 +1056,8 @@ impl<F: Field> ConstraintSystem<F> {
 
         let index = self.lookups.len();
 
-        self.lookups.push(lookup::Argument::new(name, table_map));
+        self.lookups
+            .push(lookup::Argument::new_constant_table(name, table_map));
 
         index
     }
@@ -1040,7 +1069,7 @@ impl<F: Field> ConstraintSystem<F> {
     /// they need to match.
     ///
     /// This API allows any column type to be used as table columns.
-    pub fn lookup_any(
+    pub fn lookup_dynamic_table(
         &mut self,
         name: &'static str,
         table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, Expression<F>)>,
@@ -1050,7 +1079,8 @@ impl<F: Field> ConstraintSystem<F> {
 
         let index = self.lookups.len();
 
-        self.lookups.push(lookup::Argument::new(name, table_map));
+        self.lookups
+            .push(lookup::Argument::new_dynamic_table(name, table_map));
 
         index
     }
@@ -1343,10 +1373,17 @@ impl<F: Field> ConstraintSystem<F> {
         Selector(index, false)
     }
 
-    /// Allocates a new fixed column that can be used in a lookup table.
-    pub fn lookup_table_column(&mut self) -> TableColumn {
-        TableColumn {
+    /// Allocates a new fixed column that can be used in a constant lookup table.
+    pub fn constant_lookup_table_column(&mut self) -> ConstantTableColumn {
+        ConstantTableColumn {
             inner: self.fixed_column(),
+        }
+    }
+
+    /// Allocates a new fixed column that can be used in a constant lookup table.
+    pub fn dynamic_lookup_table_column(&mut self) -> DynamicTableColumn {
+        DynamicTableColumn {
+            inner: self.advice_column(),
         }
     }
 

@@ -6,7 +6,10 @@ use ff::Field;
 
 use crate::{
     arithmetic::FieldExt,
-    plonk::{Advice, Any, Assigned, Column, Error, Fixed, Instance, Selector, TableColumn},
+    plonk::{
+        Advice, Any, Assigned, Column, ConstantTableColumn, DynamicTableColumn, Error, Fixed,
+        Instance, Selector,
+    },
 };
 
 mod value;
@@ -370,10 +373,10 @@ impl<'r, F: Field> Table<'r, F> {
     /// Returns an error if the table cell has already been assigned to.
     ///
     /// Even though `to` has `FnMut` bounds, it is guaranteed to be called at most once.
-    pub fn assign_cell<'v, V, VR, A, AR>(
+    pub fn assign_constant_cell<'v, V, VR, A, AR>(
         &'v mut self,
         annotation: A,
-        column: TableColumn,
+        column: ConstantTableColumn,
         offset: usize,
         mut to: V,
     ) -> Result<(), Error>
@@ -384,7 +387,31 @@ impl<'r, F: Field> Table<'r, F> {
         AR: Into<String>,
     {
         self.table
-            .assign_cell(&|| annotation().into(), column, offset, &mut || {
+            .assign_constant_cell(&|| annotation().into(), column, offset, &mut || {
+                to().into_field()
+            })
+    }
+
+    /// Assigns a fixed value to a table cell.
+    ///
+    /// Returns an error if the table cell has already been assigned to.
+    ///
+    /// Even though `to` has `FnMut` bounds, it is guaranteed to be called at most once.
+    pub fn assign_dynamic_cell<'v, V, VR, A, AR>(
+        &'v mut self,
+        annotation: A,
+        column: DynamicTableColumn,
+        offset: usize,
+        mut to: V,
+    ) -> Result<(), Error>
+    where
+        V: FnMut() -> Value<VR> + 'v,
+        VR: Into<Assigned<F>>,
+        A: Fn() -> AR,
+        AR: Into<String>,
+    {
+        self.table
+            .assign_dynamic_cell(&|| annotation().into(), column, offset, &mut || {
                 to().into_field()
             })
     }

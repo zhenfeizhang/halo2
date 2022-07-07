@@ -21,7 +21,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     #[derive(Clone)]
     struct MyConfig {
         selector: Selector,
-        table: TableColumn,
+        table: ConstantTableColumn,
         advice: Column<Advice>,
     }
 
@@ -36,11 +36,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         fn configure(meta: &mut ConstraintSystem<F>) -> MyConfig {
             let config = MyConfig {
                 selector: meta.complex_selector(),
-                table: meta.lookup_table_column(),
+                table: meta.constant_lookup_table_column(),
                 advice: meta.advice_column(),
             };
 
-            meta.lookup("dev lookup", |meta| {
+            meta.lookup_constant_table("dev lookup", |meta| {
                 let selector = meta.query_selector(config.selector);
                 let not_selector = Expression::Constant(F::one()) - selector.clone();
                 let advice = meta.query_advice(config.advice, Rotation::cur());
@@ -59,7 +59,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 || "8-bit table",
                 |mut table| {
                     for row in 0u64..(1 << 8) {
-                        table.assign_cell(
+                        table.assign_constant_cell(
                             || format!("row {}", row),
                             config.table,
                             row as usize,
