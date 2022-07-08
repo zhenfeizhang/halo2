@@ -210,7 +210,7 @@ fn lookup_dynamic() {
         use plotters::prelude::*;
         let root = BitMapBackend::new("dynamic_lookup.png", (1024, 3096)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        let root = root.titled("inner product", ("sans-serif", 60)).unwrap();
+        let root = root.titled("dynamic lookup", ("sans-serif", 60)).unwrap();
         halo2_proofs::dev::CircuitLayout::default()
             .render(4, &circuit, &root)
             .unwrap();
