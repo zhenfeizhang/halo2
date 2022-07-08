@@ -243,9 +243,9 @@ pub mod tests {
 
             // Fixed columns for the Sinsemilla generator lookup table
             let lookup = (
-                meta.lookup_table_column(),
-                meta.lookup_table_column(),
-                meta.lookup_table_column(),
+                meta.constant_lookup_table_column(),
+                meta.constant_lookup_table_column(),
+                meta.constant_lookup_table_column(),
             );
 
             let range_check = LookupRangeCheckConfig::configure(meta, advices[9], lookup.0);

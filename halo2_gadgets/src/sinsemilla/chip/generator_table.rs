@@ -1,6 +1,6 @@
 use halo2_proofs::{
     circuit::{Layouter, Value},
-    plonk::{ConstraintSystem, Error, Expression, TableColumn},
+    plonk::{ConstraintSystem, Error, Expression, ConstantTableColumn},
     poly::Rotation,
 };
 
@@ -11,9 +11,9 @@ use pasta_curves::{arithmetic::FieldExt, pallas};
 /// Table containing independent generators S[0..2^k]
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub struct GeneratorTableConfig {
-    pub table_idx: TableColumn,
-    pub table_x: TableColumn,
-    pub table_y: TableColumn,
+    pub table_idx: ConstantTableColumn,
+    pub table_x: ConstantTableColumn,
+    pub table_y: ConstantTableColumn,
 }
 
 impl GeneratorTableConfig {
@@ -37,7 +37,7 @@ impl GeneratorTableConfig {
         );
 
         // https://p.z.cash/halo2-0.1:sinsemilla-constraints?partial
-        meta.lookup("generator table", |meta| {
+        meta.lookup_constant_table("generator table", |meta| {
             let q_s1 = meta.query_selector(config.q_sinsemilla1);
             let q_s2 = meta.query_fixed(config.q_sinsemilla2, Rotation::cur());
             let q_s3 = config.q_s3(meta);
@@ -81,14 +81,14 @@ impl GeneratorTableConfig {
             || "generator_table",
             |mut table| {
                 for (index, (x, y)) in SINSEMILLA_S.iter().enumerate() {
-                    table.assign_cell(
+                    table.assign_constant_cell(
                         || "table_idx",
                         self.table_idx,
                         index,
                         || Value::known(pallas::Base::from(index as u64)),
                     )?;
-                    table.assign_cell(|| "table_x", self.table_x, index, || Value::known(*x))?;
-                    table.assign_cell(|| "table_y", self.table_y, index, || Value::known(*y))?;
+                    table.assign_constant_cell(|| "table_x", self.table_x, index, || Value::known(*x))?;
+                    table.assign_constant_cell(|| "table_y", self.table_y, index, || Value::known(*y))?;
                 }
                 Ok(())
             },

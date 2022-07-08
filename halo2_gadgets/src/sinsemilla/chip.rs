@@ -17,7 +17,7 @@ use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Value},
     plonk::{
         Advice, Column, ConstraintSystem, Constraints, Error, Expression, Fixed, Selector,
-        TableColumn, VirtualCells,
+        ConstantTableColumn, VirtualCells,
     },
     poly::Rotation,
 };
@@ -153,7 +153,7 @@ where
         advices: [Column<Advice>; 5],
         witness_pieces: Column<Advice>,
         fixed_y_q: Column<Fixed>,
-        lookup: (TableColumn, TableColumn, TableColumn),
+        lookup: (ConstantTableColumn, ConstantTableColumn, ConstantTableColumn),
         range_check: LookupRangeCheckConfig<pallas::Base, { sinsemilla::K }>,
     ) -> <Self as Chip<pallas::Base>>::Config {
         // Enable equality on all advice columns

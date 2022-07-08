@@ -3,7 +3,7 @@
 
 use halo2_proofs::{
     circuit::{AssignedCell, Layouter, Region},
-    plonk::{Advice, Column, ConstraintSystem, Constraints, Error, Selector, TableColumn},
+    plonk::{Advice, Column, ConstraintSystem, Constraints, Error, Selector, ConstantTableColumn},
     poly::Rotation,
 };
 use std::{convert::TryInto, marker::PhantomData};
@@ -61,7 +61,7 @@ pub struct LookupRangeCheckConfig<F: FieldExt + PrimeFieldBits, const K: usize> 
     q_running: Selector,
     q_bitshift: Selector,
     running_sum: Column<Advice>,
-    table_idx: TableColumn,
+    table_idx: ConstantTableColumn,
     _marker: PhantomData<F>,
 }
 
@@ -80,7 +80,7 @@ impl<F: FieldExt + PrimeFieldBits, const K: usize> LookupRangeCheckConfig<F, K> 
     pub fn configure(
         meta: &mut ConstraintSystem<F>,
         running_sum: Column<Advice>,
-        table_idx: TableColumn,
+        table_idx: ConstantTableColumn,
     ) -> Self {
         meta.enable_equality(running_sum);
 
@@ -97,7 +97,7 @@ impl<F: FieldExt + PrimeFieldBits, const K: usize> LookupRangeCheckConfig<F, K> 
         };
 
         // https://p.z.cash/halo2-0.1:decompose-combined-lookup
-        meta.lookup("range check", |meta| {
+        meta.lookup_constant_table("range check", |meta| {
             let q_lookup = meta.query_selector(config.q_lookup);
             let q_running = meta.query_selector(config.q_running);
             let z_cur = meta.query_advice(config.running_sum, Rotation::cur());
@@ -161,7 +161,7 @@ impl<F: FieldExt + PrimeFieldBits, const K: usize> LookupRangeCheckConfig<F, K> 
             |mut table| {
                 // We generate the row values lazily (we only need them during keygen).
                 for index in 0..(1 << K) {
-                    table.assign_cell(
+                    table.assign_constant_cell(
                         || "table_idx",
                         self.table_idx,
                         index,
@@ -417,7 +417,7 @@ mod tests {
 
             fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
                 let running_sum = meta.advice_column();
-                let table_idx = meta.lookup_table_column();
+                let table_idx = meta.constant_lookup_table_column();
                 let constants = meta.fixed_column();
                 meta.enable_constant(constants);
 
@@ -516,7 +516,7 @@ mod tests {
 
             fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
                 let running_sum = meta.advice_column();
-                let table_idx = meta.lookup_table_column();
+                let table_idx = meta.constant_lookup_table_column();
                 let constants = meta.fixed_column();
                 meta.enable_constant(constants);
 
