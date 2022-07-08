@@ -6,6 +6,9 @@ pub(crate) mod verifier;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Argument<F: Field> {
+    /// At the moment we are using a name string as a domain separator.
+    /// Ideally we want to use an increment-only counter as a tag for domain separation
+    /// We probably will still want to keep the human readable `name` Field.
     pub name: &'static str,
     pub input_expressions: Vec<Expression<F>>,
     pub table_expressions: Vec<Expression<F>>,
@@ -16,23 +19,9 @@ impl<F: Field> Argument<F> {
     ///
     /// `name` is the name of the table
     /// `table_map` is a sequence of `(input, table)` tuples.
-    pub fn new_constant_table(
-        name: &'static str,
-        table_map: Vec<(Expression<F>, Expression<F>)>,
-    ) -> Self {
-        let (input_expressions, table_expressions) = table_map.into_iter().unzip();
-        Argument {
-            name,
-            input_expressions,
-            table_expressions,
-        }
-    }
-
-    /// Constructs a new lookup argument.
-    ///
-    /// `name` is the name of the table
-    /// `table_map` is a sequence of `(input, table)` tuples.
-    pub fn new_dynamic_table(
+    /// 
+    /// This is a unified API that supports both constant and dynamic lookup tables.
+    pub fn new_table(
         name: &'static str,
         table_map: Vec<(Expression<F>, Expression<F>)>,
     ) -> Self {

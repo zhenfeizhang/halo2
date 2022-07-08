@@ -1057,7 +1057,7 @@ impl<F: Field> ConstraintSystem<F> {
         let index = self.lookups.len();
 
         self.lookups
-            .push(lookup::Argument::new_constant_table(name, table_map));
+            .push(lookup::Argument::new_table(name, table_map));
 
         index
     }
@@ -1080,7 +1080,7 @@ impl<F: Field> ConstraintSystem<F> {
         let index = self.lookups.len();
 
         self.lookups
-            .push(lookup::Argument::new_dynamic_table(name, table_map));
+            .push(lookup::Argument::new_table(name, table_map));
 
         index
     }
