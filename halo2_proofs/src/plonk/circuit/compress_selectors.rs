@@ -70,33 +70,30 @@ where
 
     // All provided selectors of degree 0 are assumed to be either concrete
     // selectors or do not appear in a gate. Let's address these first.
-    selectors = selectors
-        .into_iter()
-        .filter(|selector| {
-            if selector.max_degree == 0 {
-                // This is a complex selector, or a selector that does not appear in any
-                // gate constraint.
-                let expression = allocate_fixed_column();
+    selectors.retain(|selector| {
+        if selector.max_degree == 0 {
+            // This is a complex selector, or a selector that does not appear in any
+            // gate constraint.
+            let expression = allocate_fixed_column();
 
-                let combination_assignment = selector
-                    .activations
-                    .iter()
-                    .map(|b| if *b { F::one() } else { F::zero() })
-                    .collect::<Vec<_>>();
-                let combination_index = combination_assignments.len();
-                combination_assignments.push(combination_assignment);
-                selector_assignments.push(SelectorAssignment {
-                    selector: selector.selector,
-                    combination_index,
-                    expression,
-                });
+            let combination_assignment = selector
+                .activations
+                .iter()
+                .map(|b| if *b { F::one() } else { F::zero() })
+                .collect::<Vec<_>>();
+            let combination_index = combination_assignments.len();
+            combination_assignments.push(combination_assignment);
+            selector_assignments.push(SelectorAssignment {
+                selector: selector.selector,
+                combination_index,
+                expression,
+            });
 
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
+            false
+        } else {
+            true
+        }
+    });
 
     // All of the remaining `selectors` are simple. Let's try to combine them.
     // First, we compute the exclusion matrix that has (j, k) = true if selector
@@ -232,8 +229,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::poly::Rotation;
-    use pairing::bn256::Fr as Fp;
+    use crate::{plonk::FixedQuery, poly::Rotation};
+    use halo2curves::pasta::Fp;
     use proptest::collection::{vec, SizeRange};
     use proptest::prelude::*;
 
@@ -283,11 +280,11 @@ mod tests {
             let mut query = 0;
             let (combination_assignments, selector_assignments) =
                 process::<Fp, _>(selectors.clone(), max_degree, || {
-                    let tmp = Expression::Fixed {
-                        query_index: query,
+                    let tmp = Expression::Fixed(FixedQuery {
+                        index: query,
                         column_index: query,
                         rotation: Rotation::cur(),
-                    };
+                    });
                     query += 1;
                     tmp
                 });
@@ -321,13 +318,13 @@ mod tests {
                     let eval = selector.expression.evaluate(
                         &|c| c,
                         &|_| panic!("should not occur in returned expressions"),
-                        &|query_index, _, _| {
+                        &|query| {
                             // Should be the correct combination in the expression
-                            assert_eq!(selector.combination_index, query_index);
+                            assert_eq!(selector.combination_index, query.index);
                             assignment
                         },
-                        &|_, _, _| panic!("should not occur in returned expressions"),
-                        &|_, _, _| panic!("should not occur in returned expressions"),
+                        &|_| panic!("should not occur in returned expressions"),
+                        &|_| panic!("should not occur in returned expressions"),
                         &|a| -a,
                         &|a, b| a + b,
                         &|a, b| a * b,

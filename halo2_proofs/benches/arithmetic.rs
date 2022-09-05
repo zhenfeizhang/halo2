@@ -1,23 +1,23 @@
 #[macro_use]
 extern crate criterion;
 
+use crate::arithmetic::small_multiexp;
+use crate::halo2curves::pasta::{EqAffine, Fp};
 use group::ff::Field;
-use halo2_proofs::arithmetic::small_multiexp;
-use halo2_proofs::poly::commitment::Params;
+use halo2_proofs::*;
+
+use halo2_proofs::poly::{commitment::ParamsProver, ipa::commitment::ParamsIPA};
 
 use criterion::{black_box, Criterion};
 use rand_core::OsRng;
-
-use pairing::bn256::{Bn256, Fr as Fp, G1Affine};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let rng = OsRng;
 
     // small multiexp
     {
-        let params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(5);
-
-        let g = &mut params.get_g();
+        let params: ParamsIPA<EqAffine> = ParamsIPA::new(5);
+        let g = &mut params.get_g().to_vec();
         let len = g.len() / 2;
         let (g_lo, g_hi) = g.split_at_mut(len);
 

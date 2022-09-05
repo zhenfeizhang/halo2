@@ -6,18 +6,29 @@ use crate::arithmetic::parallelize;
 use crate::plonk::Assigned;
 
 use group::ff::{BatchInvert, Field};
-use pairing::arithmetic::FieldExt;
+use halo2curves::FieldExt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Mul, RangeFrom, RangeFull, Sub};
 
+/// Generic commitment scheme structures
 pub mod commitment;
 mod domain;
-mod msm;
-pub mod multiopen;
+mod query;
+mod strategy;
+
+/// Inner product argument commitment scheme
+pub mod ipa;
+
+/// KZG commitment scheme
+pub mod kzg;
+
+#[cfg(test)]
+mod multiopen_test;
 
 pub use domain::*;
-pub use msm::{PairMSM, MSM};
+pub use query::{ProverQuery, VerifierQuery};
+pub use strategy::{Guard, VerificationStrategy};
 
 /// This is an error that could occur during proving or circuit synthesis.
 // TODO: these errors need to be cleaned up
@@ -209,7 +220,7 @@ impl<'a, F: Field, B: Basis> Sub<&'a Polynomial<F, B>> for Polynomial<F, B> {
     }
 }
 
-impl<'a, F: Field> Polynomial<F, LagrangeCoeff> {
+impl<F: Field> Polynomial<F, LagrangeCoeff> {
     /// Rotates the values in a Lagrange basis polynomial by `Rotation`
     pub fn rotate(&self, rotation: Rotation) -> Polynomial<F, LagrangeCoeff> {
         let mut values = self.values.clone();
@@ -225,20 +236,20 @@ impl<'a, F: Field> Polynomial<F, LagrangeCoeff> {
     }
 }
 
-impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
-    type Output = Polynomial<F, B>;
-
-    fn sub(self, rhs: F) -> Polynomial<F, B> {
-        let mut res = self.clone();
-        res.values[0] -= rhs;
-        res
-    }
-}
-
-impl<'a, F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
+impl<F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
     fn mul(mut self, rhs: F) -> Polynomial<F, B> {
+        if rhs == F::zero() {
+            return Polynomial {
+                values: vec![F::zero(); self.len()],
+                _marker: PhantomData,
+            };
+        }
+        if rhs == F::one() {
+            return self;
+        }
+
         parallelize(&mut self.values, |lhs, _| {
             for lhs in lhs.iter_mut() {
                 *lhs *= rhs;
@@ -249,10 +260,20 @@ impl<'a, F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     }
 }
 
+impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
+    type Output = Polynomial<F, B>;
+
+    fn sub(self, rhs: F) -> Polynomial<F, B> {
+        let mut res = self.clone();
+        res.values[0] -= rhs;
+        res
+    }
+}
+
 /// Describes the relative rotation of a vector. Negative numbers represent
 /// reverse (leftmost) rotations and positive numbers represent forward (rightmost)
 /// rotations. Zero represents no rotation.
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Rotation(pub i32);
 
 impl Rotation {

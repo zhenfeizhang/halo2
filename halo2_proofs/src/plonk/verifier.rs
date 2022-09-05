@@ -2,128 +2,42 @@ use ff::Field;
 use group::Curve;
 use rand_core::RngCore;
 use std::iter;
-use std::marker::PhantomData;
-use std::ops::Mul;
 
 use super::{
     vanishing, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX, ChallengeY, Error,
     VerifyingKey,
 };
-use crate::arithmetic::{BaseExt, CurveAffine, FieldExt, MultiMillerLoop};
-
+use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::poly::commitment::{CommitmentScheme, Verifier};
+use crate::poly::VerificationStrategy;
 use crate::poly::{
-    commitment::{Blind, Params, ParamsVerifier},
-    multiopen::Decider,
-    multiopen::{self, VerifierQuery},
-    PairMSM, MSM,
+    commitment::{Blind, Params, MSM},
+    Guard, VerifierQuery,
 };
 use crate::transcript::{read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
 
-/// Trait representing a strategy for verifying Halo 2 proofs.
-pub trait VerificationStrategy<C: CurveAffine> {
-    /// The output type of this verification strategy after processing a proof.
-    type Output;
+#[cfg(feature = "batch")]
+mod batch;
+#[cfg(feature = "batch")]
+pub use batch::BatchVerifier;
 
-    /// Obtains an MSM from the verifier strategy and yields back the strategy's
-    /// output.
-    fn process(self, f: impl FnOnce() -> Result<PairMSM<C>, Error>) -> Result<Self::Output, Error>;
-}
-
-/// A verifier that checks a single proof at a time.
-#[derive(Debug)]
-pub struct SingleVerifier<'a, E: MultiMillerLoop> {
-    params: &'a ParamsVerifier<E>,
-}
-
-impl<'a, C: MultiMillerLoop> SingleVerifier<'a, C> {
-    /// Constructs a new single proof verifier.
-    pub fn new(params: &'a ParamsVerifier<C>) -> Self {
-        SingleVerifier { params }
-    }
-}
-
-impl<'a, C: MultiMillerLoop> VerificationStrategy<C::G1Affine> for SingleVerifier<'a, C> {
-    type Output = ();
-
-    fn process(
-        self,
-        f: impl FnOnce() -> Result<PairMSM<C::G1Affine>, Error>,
-    ) -> Result<Self::Output, Error> {
-        let guard = f()?;
-        if Decider::verify(self.params, guard) {
-            Ok(())
-        } else {
-            Err(Error::ConstraintSystemFailure)
-        }
-    }
-}
-
-/// A verifier that checks multiple proofs in a batch.
-#[derive(Debug)]
-pub struct BatchVerifier<'a, E: MultiMillerLoop, R: RngCore> {
-    params: &'a ParamsVerifier<E>,
-    msm: PairMSM<E::G1Affine>,
-    rng: R,
-}
-
-impl<'a, E: MultiMillerLoop, R: RngCore> BatchVerifier<'a, E, R> {
-    /// Constructs a new batch verifier.
-    pub fn new(params: &'a ParamsVerifier<E>, rng: R) -> Self {
-        BatchVerifier {
-            params,
-            msm: PairMSM::default(),
-            rng,
-        }
-    }
-
-    /// Finalizes the batch and checks its validity.
-    ///
-    /// Returns `false` if *some* proof was invalid. If the caller needs to identify
-    /// specific failing proofs, it must re-process the proofs separately.
-    #[must_use]
-    pub fn finalize(self) -> bool {
-        Decider::verify(self.params, self.msm)
-    }
-}
-
-impl<'a, C: MultiMillerLoop, R: RngCore> VerificationStrategy<C::G1Affine>
-    for BatchVerifier<'a, C, R>
-{
-    type Output = Self;
-
-    fn process(
-        mut self,
-        f: impl FnOnce() -> Result<PairMSM<C::G1Affine>, Error>,
-    ) -> Result<Self::Output, Error> {
-        // Scale the MSM by a random factor to ensure that if the existing MSM
-        // has is_zero() == false then this argument won't be able to interfere
-        // with it to make it true, with high probability.
-        self.msm.scale(C::Scalar::random(&mut self.rng));
-        let to_add = f()?;
-        self.msm.add_msm(to_add);
-
-        Ok(Self {
-            msm: self.msm,
-            rng: self.rng,
-            params: self.params,
-        })
-    }
-}
+use crate::poly::commitment::ParamsVerifier;
 
 /// Returns a boolean indicating whether or not the proof is valid
 pub fn verify_proof<
     'params,
-    C: MultiMillerLoop,
-    E: EncodedChallenge<C::G1Affine>,
-    T: TranscriptRead<C::G1Affine, E>,
-    V: VerificationStrategy<C::G1Affine>,
+    Scheme: CommitmentScheme,
+    V: Verifier<'params, Scheme>,
+    E: EncodedChallenge<Scheme::Curve>,
+    T: TranscriptRead<Scheme::Curve, E>,
+    Strategy: VerificationStrategy<'params, Scheme, V>,
 >(
-    params: &'params ParamsVerifier<C>,
-    vk: &VerifyingKey<C::G1Affine>,
-    strategy: V,
-    instances: &[&[&[C::Scalar]]],
+    params: &'params Scheme::ParamsVerifier,
+    vk: &VerifyingKey<Scheme::Curve>,
+    strategy: Strategy,
+    instances: &[&[&[Scheme::Scalar]]],
     transcript: &mut T,
-) -> Result<V::Output, Error> {
+) -> Result<Strategy::Output, Error> {
     // Check that instances matches the expected number of instance columns
     for instances in instances.iter() {
         if instances.len() != vk.cs.num_instance_columns {
@@ -137,11 +51,14 @@ pub fn verify_proof<
             instance
                 .iter()
                 .map(|instance| {
-                    if instance.len() > params.n as usize - (vk.cs.blinding_factors() + 1) {
+                    if instance.len() > params.n() as usize - (vk.cs.blinding_factors() + 1) {
                         return Err(Error::InstanceTooLarge);
                     }
+                    let mut poly = instance.to_vec();
+                    poly.resize(params.n() as usize, Scheme::Scalar::zero());
+                    let poly = vk.domain.lagrange_from_vec(poly);
 
-                    Ok(params.commit_lagrange(instance.to_vec()).to_affine())
+                    Ok(params.commit_lagrange(&poly, Blind::default()).to_affine())
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
@@ -247,7 +164,7 @@ pub fn verify_proof<
     // commitments open to the correct values.
     let vanishing = {
         // x^n
-        let xn = x.pow(&[params.n as u64, 0, 0, 0]);
+        let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
 
         let blinding_factors = vk.cs.blinding_factors();
         let l_evals = vk
@@ -255,9 +172,9 @@ pub fn verify_proof<
             .l_i_range(*x, xn, (-((blinding_factors + 1) as i32))..=0);
         assert_eq!(l_evals.len(), 2 + blinding_factors);
         let l_last = l_evals[0];
-        let l_blind: C::Scalar = l_evals[1..(1 + blinding_factors)]
+        let l_blind: Scheme::Scalar = l_evals[1..(1 + blinding_factors)]
             .iter()
-            .fold(C::Scalar::zero(), |acc, eval| acc + eval);
+            .fold(Scheme::Scalar::zero(), |acc, eval| acc + eval);
         let l_0 = l_evals[1 + blinding_factors];
 
         // Compute the expected value of h(x)
@@ -275,9 +192,9 @@ pub fn verify_proof<
                             poly.evaluate(
                                 &|scalar| scalar,
                                 &|_| panic!("virtual selectors are removed during optimization"),
-                                &|index, _, _| fixed_evals[index],
-                                &|index, _, _| advice_evals[index],
-                                &|index, _, _| instance_evals[index],
+                                &|query| fixed_evals[query.index],
+                                &|query| advice_evals[query.index],
+                                &|query| instance_evals[query.index],
                                 &|a| -a,
                                 &|a, b| a + &b,
                                 &|a, b| a * &b,
@@ -321,7 +238,7 @@ pub fn verify_proof<
                     )
             });
 
-        vanishing.verify(expressions, y, xn)
+        vanishing.verify(params, expressions, y, xn)
     };
 
     let queries = instance_commitments
@@ -345,7 +262,6 @@ pub fn verify_proof<
                             VerifierQuery::new_commitment(
                                 &instance_commitments[column.index()],
                                 vk.domain.rotate_omega(*x, at),
-                                at,
                                 instance_evals[query_index],
                             )
                         },
@@ -355,7 +271,6 @@ pub fn verify_proof<
                             VerifierQuery::new_commitment(
                                 &advice_commitments[column.index()],
                                 vk.domain.rotate_omega(*x, at),
-                                at,
                                 advice_evals[query_index],
                             )
                         },
@@ -378,7 +293,6 @@ pub fn verify_proof<
                     VerifierQuery::new_commitment(
                         &vk.fixed_commitments[column.index()],
                         vk.domain.rotate_omega(*x, at),
-                        at,
                         fixed_evals[query_index],
                     )
                 }),
@@ -388,7 +302,11 @@ pub fn verify_proof<
 
     // We are now convinced the circuit is satisfied so long as the
     // polynomial commitments open to the correct values.
-    strategy.process(|| {
-        multiopen::verify_proof(params, transcript, queries).map_err(|_| Error::Opening)
+
+    let verifier = V::new(params);
+    strategy.process(|msm| {
+        verifier
+            .verify_proof(transcript, queries, msm)
+            .map_err(|_| Error::Opening)
     })
 }

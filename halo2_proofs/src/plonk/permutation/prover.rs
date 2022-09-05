@@ -8,11 +8,12 @@ use std::iter::{self, ExactSizeIterator};
 use super::super::{circuit::Any, ChallengeBeta, ChallengeGamma, ChallengeX};
 use super::{Argument, ProvingKey};
 use crate::{
-    arithmetic::{eval_polynomial, parallelize, BaseExt, CurveAffine, FieldExt},
+    arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
     plonk::{self, Error},
     poly::{
-        commitment::Params, multiopen::ProverQuery, Coeff, ExtendedLagrangeCoeff, LagrangeCoeff,
-        Polynomial, Rotation,
+        self,
+        commitment::{Blind, Params},
+        Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery, Rotation,
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
@@ -20,6 +21,7 @@ use crate::{
 pub(crate) struct CommittedSet<C: CurveAffine> {
     pub(crate) permutation_product_poly: Polynomial<C::Scalar, Coeff>,
     pub(crate) permutation_product_coset: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
+    permutation_product_blind: Blind<C::Scalar>,
 }
 
 pub(crate) struct Committed<C: CurveAffine> {
@@ -28,6 +30,7 @@ pub(crate) struct Committed<C: CurveAffine> {
 
 pub struct ConstructedSet<C: CurveAffine> {
     permutation_product_poly: Polynomial<C::Scalar, Coeff>,
+    permutation_product_blind: Blind<C::Scalar>,
 }
 
 pub(crate) struct Constructed<C: CurveAffine> {
@@ -40,13 +43,15 @@ pub(crate) struct Evaluated<C: CurveAffine> {
 
 impl Argument {
     pub(in crate::plonk) fn commit<
+        'params,
         C: CurveAffine,
+        P: Params<'params, C>,
         E: EncodedChallenge<C>,
         R: RngCore,
         T: TranscriptWrite<C, E>,
     >(
         &self,
-        params: &Params<C>,
+        params: &P,
         pk: &plonk::ProvingKey<C>,
         pkey: &ProvingKey<C>,
         advice: &[Polynomial<C::Scalar, LagrangeCoeff>],
@@ -63,8 +68,8 @@ impl Argument {
         // We need to multiply by z(X) and (1 - (l_last(X) + l_blind(X))). This
         // will never underflow because of the requirement of at least a degree
         // 3 circuit for the permutation argument.
-        assert!(pk.vk.cs.degree() >= 3);
-        let chunk_len = pk.vk.cs.degree() - 2;
+        assert!(pk.vk.cs_degree >= 3);
+        let chunk_len = pk.vk.cs_degree - 2;
         let blinding_factors = pk.vk.cs.blinding_factors();
 
         // Each column gets its own delta power.
@@ -88,7 +93,7 @@ impl Argument {
             // where p_j(X) is the jth column in this permutation,
             // and i is the ith row of the column.
 
-            let mut modified_values = vec![C::Scalar::one(); params.n as usize];
+            let mut modified_values = vec![C::Scalar::one(); params.n() as usize];
 
             // Iterate over each column of the permutation
             for (&column, permuted_column_values) in columns.iter().zip(permutations.iter()) {
@@ -146,7 +151,7 @@ impl Argument {
             // Compute the evaluations of the permutation product polynomial
             // over our domain, starting with z[0] = 1
             let mut z = vec![last_z];
-            for row in 1..(params.n as usize) {
+            for row in 1..(params.n() as usize) {
                 let mut tmp = z[row - 1];
 
                 tmp *= &modified_values[row - 1];
@@ -154,13 +159,16 @@ impl Argument {
             }
             let mut z = domain.lagrange_from_vec(z);
             // Set blinding factors
-            for z in &mut z[params.n as usize - blinding_factors..] {
+            for z in &mut z[params.n() as usize - blinding_factors..] {
                 *z = C::Scalar::random(&mut rng);
             }
             // Set new last_z
-            last_z = z[params.n as usize - (blinding_factors + 1)];
+            last_z = z[params.n() as usize - (blinding_factors + 1)];
 
-            let permutation_product_commitment_projective = params.commit_lagrange(&z);
+            let blind = Blind(C::Scalar::random(&mut rng));
+
+            let permutation_product_commitment_projective = params.commit_lagrange(&z, blind);
+            let permutation_product_blind = blind;
             let z = domain.lagrange_to_coeff(z);
             let permutation_product_poly = z.clone();
 
@@ -175,6 +183,7 @@ impl Argument {
             sets.push(CommittedSet {
                 permutation_product_poly,
                 permutation_product_coset,
+                permutation_product_blind,
             });
         }
 
@@ -190,6 +199,7 @@ impl<C: CurveAffine> Committed<C> {
                 .iter()
                 .map(|set| ConstructedSet {
                     permutation_product_poly: set.permutation_product_poly.clone(),
+                    permutation_product_blind: set.permutation_product_blind,
                 })
                 .collect(),
         }
@@ -203,8 +213,8 @@ impl<C: CurveAffine> super::ProvingKey<C> {
     ) -> impl Iterator<Item = ProverQuery<'_, C>> + Clone {
         self.polys.iter().map(move |poly| ProverQuery {
             point: *x,
-            rotation: Rotation::cur(),
             poly,
+            blind: Blind::default(),
         })
     }
 
@@ -288,13 +298,13 @@ impl<C: CurveAffine> Evaluated<C> {
                     // Open permutation product commitments at x and \omega x
                     .chain(Some(ProverQuery {
                         point: *x,
-                        rotation: Rotation::cur(),
                         poly: &set.permutation_product_poly,
+                        blind: set.permutation_product_blind,
                     }))
                     .chain(Some(ProverQuery {
                         point: x_next,
-                        rotation: Rotation::next(),
                         poly: &set.permutation_product_poly,
+                        blind: set.permutation_product_blind,
                     }))
             }))
             // Open it at \omega^{last} x for all but the last set. This rotation is only
@@ -309,8 +319,8 @@ impl<C: CurveAffine> Evaluated<C> {
                     .flat_map(move |set| {
                         Some(ProverQuery {
                             point: x_last,
-                            rotation: Rotation(-((blinding_factors + 1) as i32)),
                             poly: &set.permutation_product_poly,
+                            blind: set.permutation_product_blind,
                         })
                     }),
             )

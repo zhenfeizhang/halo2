@@ -5,10 +5,10 @@ use super::multicore;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
-    Group as _,
+    Curve, Group as _,
 };
 
-pub use pairing::arithmetic::*;
+pub use halo2curves::{CurveAffine, CurveExt, FieldExt, Group};
 
 fn multiexp_serial<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C], acc: &mut C::Curve) {
     let coeffs: Vec<_> = coeffs.iter().map(|a| a.to_repr()).collect();
@@ -169,18 +169,7 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 ///
 /// This will use multithreading if beneficial.
 pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    let threads = multicore::current_num_threads();
-    let log_threads = log2_floor(threads);
-
-    if log_n <= log_threads {
-        serial_fft(a, omega, log_n);
-    } else {
-        parallel_fft(a, omega, log_n, log_threads);
-    }
-}
-
-fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    fn bitreverse(mut n: u32, l: u32) -> u32 {
+    fn bitreverse(mut n: usize, l: usize) -> usize {
         let mut r = 0;
         for _ in 0..l {
             r = (r << 1) | (n & 1);
@@ -189,80 +178,126 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
         r
     }
 
-    let n = a.len() as u32;
+    let threads = multicore::current_num_threads();
+    let log_threads = log2_floor(threads);
+    let n = a.len() as usize;
     assert_eq!(n, 1 << log_n);
 
     for k in 0..n {
-        let rk = bitreverse(k, log_n);
+        let rk = bitreverse(k, log_n as usize);
         if k < rk {
-            a.swap(rk as usize, k as usize);
+            a.swap(rk, k);
         }
     }
 
-    let mut m = 1;
-    for _ in 0..log_n {
-        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+    // precompute twiddle factors
+    let twiddles: Vec<_> = (0..(n / 2) as usize)
+        .scan(G::Scalar::one(), |w, _| {
+            let tw = *w;
+            w.group_scale(&omega);
+            Some(tw)
+        })
+        .collect();
 
-        let mut k = 0;
-        while k < n {
-            let mut w = G::Scalar::one();
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t.group_scale(&w);
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize].group_sub(&t);
-                a[(k + j) as usize].group_add(&t);
-                w *= &w_m;
-            }
+    if log_n <= log_threads {
+        let mut chunk = 2_usize;
+        let mut twiddle_chunk = (n / 2) as usize;
+        for _ in 0..log_n {
+            a.chunks_mut(chunk).for_each(|coeffs| {
+                let (left, right) = coeffs.split_at_mut(chunk / 2);
 
-            k += 2 * m;
+                // case when twiddle factor is one
+                let (a, left) = left.split_at_mut(1);
+                let (b, right) = right.split_at_mut(1);
+                let t = b[0];
+                b[0] = a[0];
+                a[0].group_add(&t);
+                b[0].group_sub(&t);
+
+                left.iter_mut()
+                    .zip(right.iter_mut())
+                    .enumerate()
+                    .for_each(|(i, (a, b))| {
+                        let mut t = *b;
+                        t.group_scale(&twiddles[(i + 1) * twiddle_chunk]);
+                        *b = *a;
+                        a.group_add(&t);
+                        b.group_sub(&t);
+                    });
+            });
+            chunk *= 2;
+            twiddle_chunk /= 2;
         }
-
-        m *= 2;
+    } else {
+        recursive_butterfly_arithmetic(a, n, 1, &twiddles)
     }
 }
 
-fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads: u32) {
-    assert!(log_n >= log_threads);
+/// This perform recursive butterfly arithmetic
+pub fn recursive_butterfly_arithmetic<G: Group>(
+    a: &mut [G],
+    n: usize,
+    twiddle_chunk: usize,
+    twiddles: &[G::Scalar],
+) {
+    if n == 2 {
+        let t = a[1];
+        a[1] = a[0];
+        a[0].group_add(&t);
+        a[1].group_sub(&t);
+    } else {
+        let (left, right) = a.split_at_mut(n / 2);
+        rayon::join(
+            || recursive_butterfly_arithmetic(left, n / 2, twiddle_chunk * 2, twiddles),
+            || recursive_butterfly_arithmetic(right, n / 2, twiddle_chunk * 2, twiddles),
+        );
 
-    let num_threads = 1 << log_threads;
-    let log_new_n = log_n - log_threads;
-    let mut tmp = vec![vec![G::group_zero(); 1 << log_new_n]; num_threads];
-    let new_omega = omega.pow_vartime(&[num_threads as u64, 0, 0, 0]);
+        // case when twiddle factor is one
+        let (a, left) = left.split_at_mut(1);
+        let (b, right) = right.split_at_mut(1);
+        let t = b[0];
+        b[0] = a[0];
+        a[0].group_add(&t);
+        b[0].group_sub(&t);
 
-    multicore::scope(|scope| {
-        let a = &*a;
-
-        for (j, tmp) in tmp.iter_mut().enumerate() {
-            scope.spawn(move |_| {
-                // Shuffle into a sub-FFT
-                let omega_j = omega.pow_vartime(&[j as u64, 0, 0, 0]);
-                let omega_step = omega.pow_vartime(&[(j as u64) << log_new_n, 0, 0, 0]);
-
-                let mut elt = G::Scalar::one();
-
-                for (i, tmp) in tmp.iter_mut().enumerate() {
-                    for s in 0..num_threads {
-                        let idx = (i + (s << log_new_n)) % (1 << log_n);
-                        let mut t = a[idx];
-                        t.group_scale(&elt);
-                        tmp.group_add(&t);
-                        elt *= &omega_step;
-                    }
-                    elt *= &omega_j;
-                }
-
-                // Perform sub-FFT
-                serial_fft(tmp, new_omega, log_new_n);
+        left.iter_mut()
+            .zip(right.iter_mut())
+            .enumerate()
+            .for_each(|(i, (a, b))| {
+                let mut t = *b;
+                t.group_scale(&twiddles[(i + 1) * twiddle_chunk]);
+                *b = *a;
+                a.group_add(&t);
+                b.group_sub(&t);
             });
+    }
+}
+
+/// Convert coefficient bases group elements to lagrange basis by inverse FFT.
+pub fn g_to_lagrange<C: CurveAffine>(g_projective: Vec<C::Curve>, k: u32) -> Vec<C> {
+    let n_inv = C::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
+    let mut omega_inv = C::Scalar::ROOT_OF_UNITY_INV;
+    for _ in k..C::Scalar::S {
+        omega_inv = omega_inv.square();
+    }
+
+    let mut g_lagrange_projective = g_projective;
+    best_fft(&mut g_lagrange_projective, omega_inv, k);
+    parallelize(&mut g_lagrange_projective, |g, _| {
+        for g in g.iter_mut() {
+            *g *= n_inv;
         }
     });
 
-    // Unshuffle
-    let mask = (1 << log_threads) - 1;
-    for (idx, a) in a.iter_mut().enumerate() {
-        *a = tmp[idx & mask][idx >> log_threads];
-    }
+    let mut g_lagrange = vec![C::identity(); 1 << k];
+    parallelize(&mut g_lagrange, |g_lagrange, starts| {
+        C::Curve::batch_normalize(
+            &g_lagrange_projective[starts..(starts + g_lagrange.len())],
+            g_lagrange,
+        );
+    });
+
+    g_lagrange
 }
 
 /// This evaluates a provided polynomial (in coefficient form) at `point`.
@@ -371,7 +406,7 @@ pub fn lagrange_interpolate<F: FieldExt>(points: &[F], evals: &[F]) -> Vec<F> {
     assert_eq!(points.len(), evals.len());
     if points.len() == 1 {
         // Constant polynomial
-        return vec![evals[0]];
+        vec![evals[0]]
     } else {
         let mut denoms = Vec::with_capacity(points.len());
         for (j, x_j) in points.iter().enumerate() {
@@ -442,11 +477,15 @@ pub(crate) fn evaluate_vanishing_polynomial<F: FieldExt>(roots: &[F], z: F) -> F
     }
 }
 
+pub(crate) fn powers<F: FieldExt>(base: F) -> impl Iterator<Item = F> {
+    std::iter::successors(Some(F::one()), move |power| Some(base * power))
+}
+
 #[cfg(test)]
 use rand_core::OsRng;
 
 #[cfg(test)]
-use pairing::bn256::Fr as Fp;
+use crate::halo2curves::pasta::Fp;
 
 #[test]
 fn test_lagrange_interpolate() {
