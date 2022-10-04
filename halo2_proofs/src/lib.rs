@@ -20,9 +20,9 @@
 #![deny(broken_intra_doc_links)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
-// Remove this once we update pasta_curves
-#![allow(unused_imports)]
 #![allow(clippy::derive_partial_eq_without_eq)]
+// required for downstream to pass rustdoc: Mul<Value<V>> is recurred for too many times
+#![recursion_limit = "256"]
 
 pub mod arithmetic;
 pub mod circuit;

@@ -1,36 +1,30 @@
-use ff::Field;
-use group::Curve;
-use halo2curves::CurveExt;
-use rand_core::RngCore;
-use std::env::var;
-use std::ops::RangeTo;
-use std::sync::atomic::AtomicUsize;
-use std::time::Instant;
-use std::{iter, sync::atomic::Ordering};
-
 use super::{
     circuit::{
         Advice, Any, Assignment, Circuit, Column, ConstraintSystem, Fixed, FloorPlanner, Instance,
         Selector,
     },
     lookup, permutation, vanishing, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX,
-    ChallengeY, Error, Expression, ProvingKey,
+    ChallengeY, Error, ProvingKey,
 };
 use crate::{
     arithmetic::{eval_polynomial, CurveAffine, FieldExt},
     circuit::Value,
     plonk::Assigned,
     poly::{
-        self,
         commitment::{Blind, CommitmentScheme, Params, Prover},
-        Basis, Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery,
+        Basis, Coeff, LagrangeCoeff, Polynomial, ProverQuery,
     },
 };
 use crate::{
     poly::batch_invert_assigned,
     transcript::{EncodedChallenge, TranscriptWrite},
 };
+use ff::Field;
 use group::prime::PrimeCurveAffine;
+use group::Curve;
+use rand_core::RngCore;
+use std::iter;
+use std::ops::RangeTo;
 
 /// This creates a proof for the provided `circuit` when given the public
 /// parameters `params` and the proving key [`ProvingKey`] that was

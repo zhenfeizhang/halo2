@@ -5,8 +5,7 @@ use super::{
 use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
 use ff::Field;
 use group::ff::PrimeField;
-use halo2curves::{Coordinates, CurveAffine, FieldExt};
-use num_bigint::BigUint;
+use halo2curves::{Coordinates, CurveAffine};
 use std::convert::TryInto;
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;

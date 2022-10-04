@@ -1,13 +1,5 @@
-use std::{io, marker::PhantomData};
-
-use group::ff::Field;
-use halo2curves::CurveAffine;
-use rand_core::{OsRng, RngCore};
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-
 use super::{verify_proof, VerificationStrategy};
 use crate::{
-    multicore,
     plonk::{Error, VerifyingKey},
     poly::{
         commitment::{Params, MSM},
@@ -20,6 +12,10 @@ use crate::{
     },
     transcript::{Blake2bRead, TranscriptReadBuffer},
 };
+use group::ff::Field;
+use halo2curves::CurveAffine;
+use rand_core::OsRng;
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 /// A proof verification strategy that returns the proof's MSM.
 ///

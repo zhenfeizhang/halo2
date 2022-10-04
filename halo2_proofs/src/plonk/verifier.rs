@@ -1,27 +1,23 @@
-use ff::Field;
-use group::Curve;
-use rand_core::RngCore;
-use std::iter;
-
 use super::{
     vanishing, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX, ChallengeY, Error,
     VerifyingKey,
 };
-use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::arithmetic::FieldExt;
 use crate::poly::commitment::{CommitmentScheme, Verifier};
 use crate::poly::VerificationStrategy;
 use crate::poly::{
-    commitment::{Blind, Params, MSM},
-    Guard, VerifierQuery,
+    commitment::{Blind, Params},
+    VerifierQuery,
 };
 use crate::transcript::{read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
+use ff::Field;
+use group::Curve;
+use std::iter;
 
 #[cfg(feature = "batch")]
 mod batch;
 #[cfg(feature = "batch")]
 pub use batch::BatchVerifier;
-
-use crate::poly::commitment::ParamsVerifier;
 
 /// Returns a boolean indicating whether or not the proof is valid
 pub fn verify_proof<

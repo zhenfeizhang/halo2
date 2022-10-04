@@ -1,10 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fmt;
-use std::iter;
-
-use group::ff::Field;
-use halo2curves::FieldExt;
-
 use super::{
     metadata,
     util::{self, AnyQuery},
@@ -13,8 +6,11 @@ use super::{
 use crate::{
     dev::Value,
     plonk::{Any, Column, ConstraintSystem, Expression, Gate},
-    poly::Rotation,
 };
+use group::ff::Field;
+use halo2curves::FieldExt;
+use std::collections::{BTreeMap, HashSet};
+use std::fmt;
 
 mod emitter;
 

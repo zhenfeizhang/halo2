@@ -1,32 +1,13 @@
 use crate::multicore;
-use crate::plonk::lookup::prover::Committed;
-use crate::plonk::permutation::Argument;
 use crate::plonk::{lookup, permutation, Any, ProvingKey};
 use crate::poly::Basis;
 use crate::{
-    arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
-    poly::{
-        commitment::Params, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff,
-        Polynomial, ProverQuery, Rotation,
-    },
-    transcript::{EncodedChallenge, TranscriptWrite},
-};
-use group::prime::PrimeCurve;
-use group::{
-    ff::{BatchInvert, Field},
-    Curve,
-};
-use std::any::TypeId;
-use std::convert::TryInto;
-use std::num::ParseIntError;
-use std::slice;
-use std::{
-    collections::BTreeMap,
-    iter,
-    ops::{Index, Mul, MulAssign},
+    arithmetic::{parallelize, CurveAffine, FieldExt},
+    poly::{Coeff, ExtendedLagrangeCoeff, Polynomial, Rotation},
 };
 
 use super::{ConstraintSystem, Expression};
+use group::ff::Field;
 
 /// Return the index in the polynomial of size `isize` after rotation `rot`.
 fn get_rotation_idx(idx: usize, rot: i32, rot_scale: i32, isize: i32) -> usize {

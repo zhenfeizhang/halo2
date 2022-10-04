@@ -4,16 +4,9 @@ mod verifier;
 pub use prover::ProverSHPLONK;
 pub use verifier::VerifierSHPLONK;
 
-use crate::{
-    arithmetic::{eval_polynomial, lagrange_interpolate, CurveAffine, FieldExt},
-    poly::{query::Query, Coeff, Polynomial},
-    transcript::ChallengeScalar,
-};
+use crate::{arithmetic::FieldExt, poly::query::Query, transcript::ChallengeScalar};
 
-use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
-    marker::PhantomData,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug)]
 struct U {}
@@ -158,18 +151,9 @@ where
 
 #[cfg(test)]
 mod proptests {
-    use proptest::{
-        collection::vec,
-        prelude::*,
-        sample::{select, subsequence},
-        strategy::Strategy,
-    };
-
     use super::{construct_intermediate_sets, Commitment, IntermediateSets};
-    use crate::poly::Rotation;
     use halo2curves::{pasta::Fp, FieldExt};
-
-    use std::collections::BTreeMap;
+    use proptest::{collection::vec, prelude::*, sample::select};
     use std::convert::TryFrom;
 
     #[derive(Debug, Clone)]

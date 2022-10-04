@@ -1,6 +1,5 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-
 use group::ff::Field;
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// A value assigned to a cell within a circuit.
 ///
@@ -444,15 +443,13 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
+    use group::ff::Field;
+    use halo2curves::pasta::Fp;
+    use proptest::{collection::vec, prelude::*, sample::select};
     use std::{
         cmp,
-        convert::TryFrom,
         ops::{Add, Mul, Neg, Sub},
     };
-
-    use group::ff::Field;
-    use halo2curves::{pasta::Fp, FieldExt};
-    use proptest::{collection::vec, prelude::*, sample::select};
 
     use super::Assigned;
 

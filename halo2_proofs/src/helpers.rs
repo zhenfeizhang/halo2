@@ -1,4 +1,3 @@
-use ff::Field;
 use halo2curves::{CurveAffine, FieldExt};
 use num_bigint::BigUint;
 use std::io;
@@ -42,6 +41,7 @@ pub(crate) fn base_to_scalar<C: CurveAffine>(base: &C::Base) -> C::Scalar {
 #[cfg(test)]
 mod test {
     use super::*;
+    use ff::Field;
     use halo2curves::bn256::{Fq, G1Affine};
     use rand_core::OsRng;
     #[test]

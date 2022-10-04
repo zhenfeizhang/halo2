@@ -1,9 +1,7 @@
 use super::{Challenge255, EncodedChallenge, Transcript, TranscriptRead, TranscriptWrite};
 use crate::helpers::base_to_scalar;
-use ff::Field;
 use group::ff::PrimeField;
-use halo2curves::{Coordinates, CurveAffine, FieldExt};
-use num_bigint::BigUint;
+use halo2curves::{Coordinates, CurveAffine};
 use poseidon::Poseidon;
 use std::convert::TryInto;
 use std::io::{self, Read, Write};

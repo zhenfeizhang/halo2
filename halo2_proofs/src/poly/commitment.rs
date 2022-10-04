@@ -5,13 +5,11 @@ use super::{
 };
 use crate::poly::Error;
 use crate::transcript::{EncodedChallenge, TranscriptRead, TranscriptWrite};
-use ff::Field;
-use group::Curve;
-use halo2curves::{CurveAffine, CurveExt, FieldExt};
+use halo2curves::{CurveAffine, FieldExt};
 use rand_core::RngCore;
 use std::{
     fmt::Debug,
-    io::{self, Read, Write},
+    io,
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 

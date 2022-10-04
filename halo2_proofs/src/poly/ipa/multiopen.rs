@@ -6,11 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
-use crate::{
-    arithmetic::{CurveAffine, FieldExt},
-    poly::query::Query,
-    transcript::ChallengeScalar,
-};
+use crate::{arithmetic::FieldExt, poly::query::Query, transcript::ChallengeScalar};
 
 mod prover;
 mod verifier;

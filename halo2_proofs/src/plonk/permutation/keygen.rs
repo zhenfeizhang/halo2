@@ -6,7 +6,7 @@ use crate::{
     arithmetic::{parallelize, CurveAffine, FieldExt},
     plonk::{Any, Column, Error},
     poly::{
-        commitment::{Blind, CommitmentScheme, Params},
+        commitment::{Blind, Params},
         EvaluationDomain,
     },
 };
