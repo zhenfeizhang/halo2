@@ -153,10 +153,7 @@ impl<'a, E: MultiMillerLoop + Debug> DualMSM<'a, E> {
         let left = self.left.eval();
         let right = self.right.eval();
 
-        let (term_1, term_2) = (
-            (&left.into(), &s_g2_prepared),
-            (&right.into(), &n_g2_prepared),
-        );
+        let (term_1, term_2) = ((&left, &s_g2_prepared), (&right, &n_g2_prepared));
         let terms = &[term_1, term_2];
 
         bool::from(
